@@ -1,6 +1,7 @@
-"""Always-on-top token-usage widget (Claude Code + Codex), Apple-style dark UI.
+"""Usage Deck: always-on-top token-usage widget (Claude Code + Codex), Apple-style dark UI.
 Reads local logs only; no API calls. Auto-refreshes every REFRESH_MS."""
 import json
+import os
 import struct
 import subprocess
 import sys
@@ -12,8 +13,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 HOME = Path.home()
-CLAUDE_DIR = HOME / ".claude" / "projects"
-CODEX_DIR = HOME / ".codex" / "sessions"
+CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude") / "projects"
+CODEX_DIR = Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "sessions"
 BASE = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
 CONFIG = BASE / "config.json"
 LOGOS = BASE / "logos"
@@ -542,7 +543,7 @@ class Widget:
 if __name__ == "__main__":
     try:
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TokenWidget.Usage")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("UsageDeck.App")
     except Exception:
         pass
     Widget().root.mainloop()

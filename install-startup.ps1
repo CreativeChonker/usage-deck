@@ -1,7 +1,7 @@
-# Adds Token Widget to Windows startup (uses TokenWidget.exe if built, else pythonw widget.py).
+# Adds Usage Deck to Windows startup (uses UsageDeck.exe if built, else pythonw widget.py).
 $dir = $PSScriptRoot
-$exe = Join-Path $dir "TokenWidget.exe"
-$lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\TokenWidget.lnk"
+$exe = Join-Path $dir "UsageDeck.exe"
+$lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\UsageDeck.lnk"
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
 if (Test-Path $exe) { $s.TargetPath = $exe }
 else { $s.TargetPath = (Get-Command pythonw).Source; $s.Arguments = "`"$dir\widget.py`"" }
