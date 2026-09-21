@@ -21,13 +21,16 @@ LOGOS = BASE / "logos"
 EDGES = (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
          r"C:\Program Files\Microsoft\Edge\Application\msedge.exe")
 REFRESH_MS = 30_000
+GLASS = True  # blurred glass over what is behind it; False = solid dark
+GLASS_ACCENT = (3, 0)  # (3 = plain blur, stays dark | 4, 0xB0000000 = stronger acrylic blur but lifts blacks to grey)
+GLASS_ALPHA = 0.78  # lower = more of the blurred background shows
 DEFAULTS = {"x": None, "y": None, "w": 300, "compact": False,
             "show_claude": None, "show_codex": None,   # null = auto (show if its log folder exists)
             "claude_5h_cap": None,          # null = your own peak 5h window
             "claude_7d_cap": 30_000_000}    # edit to taste (Claude logs have no official limit)
 
 KEY = "#010203"  # transparent colour key for rounded corners
-BG, BORDER, TRACK = "#0c0c0c", "#2a2a2a", "#2e2e2e"
+BG, BORDER, TRACK = "#0e0e0f", "#2c2c2e", "#262628"
 FG, DIM = "#f2f2f7", "#98989d"
 ORANGE, BLUE, RED, YELLOW, LIGHT_GREEN = "#ff9f0a", "#0a84ff", "#ff453a", "#febc2e", "#28c840"
 FONT = "Segoe UI"
@@ -244,7 +247,7 @@ class Widget:
         r.title("Token Usage")
         r.overrideredirect(True)
         r.attributes("-topmost", True)
-        r.attributes("-alpha", 0.95)
+        r.attributes("-alpha", GLASS_ALPHA if GLASS else 1.0)
         r.configure(bg=BG)
         self.cv = tk.Canvas(r, bg=BG, highlightthickness=0, bd=0)
         self.cv.pack(fill="both", expand=True)
@@ -519,8 +522,9 @@ class Widget:
             class WCA(Structure):
                 _fields_ = [("Attr", c_int), ("Data", c_void_p), ("Size", c_size_t)]
 
-            acc = ACCENT(4, 0, 0xD0000000, 0)  # acrylic, ABGR tint
-            u.SetWindowCompositionAttribute(hwnd, byref(WCA(19, ctypes.addressof(acc), sizeof(acc))))
+            acc = ACCENT(GLASS_ACCENT[0], 0, GLASS_ACCENT[1], 0)
+            if GLASS:
+                u.SetWindowCompositionAttribute(hwnd, byref(WCA(19, ctypes.addressof(acc), sizeof(acc))))
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, byref(c_int(2)), 4)  # rounded
         except Exception:
             pass

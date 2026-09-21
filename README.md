@@ -5,7 +5,7 @@
 A small always-on-top widget that shows how much of your 5-hour and weekly limits you've used, so you
 stop guessing and stop getting cut off mid-task.
 
-![Usage Deck](docs/screenshot.png)
+![Usage Deck](docs/hero.png)
 
 ## Features
 
@@ -16,6 +16,13 @@ stop guessing and stop getting cut off mid-task.
 - **Looks native:** dark, rounded, slightly frosted glass, with Mac-style window buttons.
 - **Stays out of the way:** drag it anywhere, resize it, minimize it, or switch to compact view.
 - **Pin it and forget it:** taskbar button, custom icon, optional start with Windows.
+
+<details>
+<summary>Actual screenshot</summary>
+
+![Usage Deck screenshot](docs/screenshot.png)
+
+</details>
 
 ## Quick start
 
