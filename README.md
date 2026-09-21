@@ -52,8 +52,10 @@ To start with Windows, run `powershell -ExecutionPolicy Bypass -File install-sta
 
 - **Logos / icon:** put `claude.svg`, `codex.svg` and `app.svg` (or PNGs) in `logos/`. SVGs are converted
   automatically using Microsoft Edge (already on Windows). `app.svg` becomes the window and `.exe` icon.
+- **Show only one tool:** right-click the widget and untick **Show Claude Code** or **Show Codex**.
+  By default a tool shows only if its log folder exists, so having just one installed works out of the box.
 - **Settings:** `config.json` is created next to the app on first move. Keys: `w` (width),
-  `compact`, `claude_5h_cap`, `claude_7d_cap`.
+  `compact`, `show_claude` / `show_codex` (`true`, `false`, or `null` for auto), `claude_5h_cap`, `claude_7d_cap`.
 - **Look:** colors and the glass strength (`-alpha`, and the acrylic tint value) are at the top and in
   `glass()` in `widget.py`.
 

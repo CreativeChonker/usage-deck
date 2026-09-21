@@ -22,6 +22,7 @@ EDGES = (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
          r"C:\Program Files\Microsoft\Edge\Application\msedge.exe")
 REFRESH_MS = 30_000
 DEFAULTS = {"x": None, "y": None, "w": 300, "compact": False,
+            "show_claude": None, "show_codex": None,   # null = auto (show if its log folder exists)
             "claude_5h_cap": None,          # null = your own peak 5h window
             "claude_7d_cap": 30_000_000}    # edit to taste (Claude logs have no official limit)
 
@@ -162,12 +163,12 @@ def peak_window(events, hours):
     return best
 
 
-def collect():
+def collect(claude=True, codex=True):
     now = datetime.now().astimezone()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     h5, d7 = now - timedelta(hours=5), now - timedelta(days=7)
-    c_ev = scan_claude()
-    x_ev, rl = scan_codex()
+    c_ev = scan_claude() if claude else []
+    x_ev, rl = scan_codex() if codex else ([], None)
     return {
         "claude": [window_sum(c_ev, today), window_sum(c_ev, h5), window_sum(c_ev, d7)],
         "claude_peak5h": peak_window(c_ev, 5),
@@ -284,15 +285,24 @@ class Widget:
         self.refresh()
 
     # ---- data ----
+    def enabled(self, name):
+        v = self.cfg.get(f"show_{name}")
+        if v is not None:
+            return bool(v)
+        return (CLAUDE_DIR if name == "claude" else CODEX_DIR).parent.exists()
+
     def refresh(self):
         self.root.after(REFRESH_MS, self.refresh)
+        self.fetch()
+
+    def fetch(self):
         if self.busy:
             return
         self.busy = True
 
         def work():
             try:
-                d = collect()
+                d = collect(self.enabled("claude"), self.enabled("codex"))
                 self.root.after(0, lambda: self.got(d))
             except Exception:
                 self.busy = False
@@ -367,34 +377,41 @@ class Widget:
             c = d["claude"]
             cap5 = self.cfg["claude_5h_cap"] or max(d["claude_peak5h"], 1_000_000)
             cap7 = self.cfg["claude_7d_cap"] or 30_000_000
-            y = self.section(y, "Claude Code", ORANGE, self.logos.get("claude"))
-            y = self.bar(y, w, c[1] / cap5, ORANGE, "5 hours", f"{fmt(c[1])} · {c[1] / cap5:.0%}")
-            y = self.bar(y, w, c[2] / cap7, ORANGE, "7 days", f"{fmt(c[2])} · {c[2] / cap7:.0%}")
-            if not compact:
-                y = self.row(y, w, "Today", fmt(c[0]))
-            y += 8
+            if self.enabled("claude"):
+                y = self.section(y, "Claude Code", ORANGE, self.logos.get("claude"))
+                y = self.bar(y, w, c[1] / cap5, ORANGE, "5 hours", f"{fmt(c[1])} · {c[1] / cap5:.0%}")
+                y = self.bar(y, w, c[2] / cap7, ORANGE, "7 days", f"{fmt(c[2])} · {c[2] / cap7:.0%}")
+                if not compact:
+                    y = self.row(y, w, "Today", fmt(c[0]))
+                y += 8
 
-            x = d["codex"]
-            rl = d["rl"] or {}
-            y = self.section(y, "Codex", BLUE, self.logos.get("codex"))
-            for name, label, weekly in (("primary", "5-hour limit", False), ("secondary", "Weekly limit", True)):
-                win = rl.get(name)
-                if not win:
-                    y = self.row(y, w, label, "n/a")
-                    continue
-                pct = win.get("used_percent", 0)
-                reset = datetime.fromtimestamp(win["resets_at"]).astimezone() if win.get("resets_at") else None
-                if reset and reset < now:
-                    pct, tail = 0, "reset"
-                elif reset:
-                    tail = f"resets {reset:%a %H:%M}" if weekly else f"resets {reset:%H:%M}"
-                else:
-                    tail = ""
-                y = self.bar(y, w, pct / 100, BLUE, label, f"{pct:.0f}% · {tail}".rstrip(" ·"))
-            if not compact:
-                y = self.row(y, w, "Today", fmt(x[0]))
-                y = self.row(y, w, "7 days", fmt(x[2]))
-            y += 4
+            if self.enabled("codex"):
+                x = d["codex"]
+                rl = d["rl"] or {}
+                y = self.section(y, "Codex", BLUE, self.logos.get("codex"))
+                for name, label, weekly in (("primary", "5-hour limit", False), ("secondary", "Weekly limit", True)):
+                    win = rl.get(name)
+                    if not win:
+                        y = self.row(y, w, label, "n/a")
+                        continue
+                    pct = win.get("used_percent", 0)
+                    reset = datetime.fromtimestamp(win["resets_at"]).astimezone() if win.get("resets_at") else None
+                    if reset and reset < now:
+                        pct, tail = 0, "reset"
+                    elif reset:
+                        tail = f"resets {reset:%a %H:%M}" if weekly else f"resets {reset:%H:%M}"
+                    else:
+                        tail = ""
+                    y = self.bar(y, w, pct / 100, BLUE, label, f"{pct:.0f}% · {tail}".rstrip(" ·"))
+                if not compact:
+                    y = self.row(y, w, "Today", fmt(x[0]))
+                    y = self.row(y, w, "7 days", fmt(x[2]))
+                y += 4
+
+        if d is not None and not (self.enabled("claude") or self.enabled("codex")):
+            self.text(p, y, "Nothing selected", 10, FG, weight="bold")
+            self.text(p, y + 20, "Right-click to choose what to show.", 9, DIM)
+            y += 40
 
         h = self.h = int(y + 16)
         cv.coords(bg_id, *self._rrect_pts(1, 1, w - 1, h - 1, 12))
@@ -525,12 +542,22 @@ class Widget:
 
     def menu(self, e):
         m = tk.Menu(self.root, tearoff=0)
-        m.add_command(label="Refresh now", command=lambda: (setattr(self, "busy", False), self.refresh()))
+        vc, vx = tk.BooleanVar(value=self.enabled("claude")), tk.BooleanVar(value=self.enabled("codex"))
+        m.add_checkbutton(label="Show Claude Code", variable=vc, command=lambda: self.set_show("claude", vc.get()))
+        m.add_checkbutton(label="Show Codex", variable=vx, command=lambda: self.set_show("codex", vx.get()))
+        m.add_separator()
+        m.add_command(label="Refresh now", command=self.fetch)
         m.add_command(label="Compact / Full", command=self.toggle_compact)
         m.add_command(label="Minimize", command=self.minimize)
         m.add_separator()
         m.add_command(label="Quit", command=self.root.destroy)
         m.tk_popup(e.x_root, e.y_root)
+
+    def set_show(self, name, on):
+        self.cfg[f"show_{name}"] = bool(on)
+        self.save()
+        self.draw()
+        self.fetch()
 
     def save(self):
         self.cfg["x"], self.cfg["y"] = self.root.winfo_x(), self.root.winfo_y()
