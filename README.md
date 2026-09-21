@@ -70,7 +70,7 @@ Only the CLIs and IDE extensions that write these logs are counted. Chats on cla
   automatically using Microsoft Edge (already on Windows). `app.svg` becomes the window and `.exe` icon.
 - **Settings:** `config.json` is created next to the app on first move. Keys: `w` (width), `compact`,
   `show_claude` / `show_codex` (`true`, `false`, or `null` for auto), `claude_5h_cap`, `claude_7d_cap`.
-- **Look:** colors and the glass strength (`-alpha`, and the tint value in `glass()`) are in `widget.py`.
+- **Style:** right-click and choose **Glass** (slightly see-through, blurred) or **Pure black** (solid). The choice is saved as `glass` in `config.json`. Colors and glass strength (`GLASS_ALPHA`) are at the top of `widget.py`.
 
 ## Good to know
 

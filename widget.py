@@ -21,10 +21,11 @@ LOGOS = BASE / "logos"
 EDGES = (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
          r"C:\Program Files\Microsoft\Edge\Application\msedge.exe")
 REFRESH_MS = 30_000
-GLASS = True  # blurred glass over what is behind it; False = solid dark
+PURE_BLACK = "#000000"  # background used by the "Pure black" style
 GLASS_ACCENT = (3, 0)  # (3 = plain blur, stays dark | 4, 0xB0000000 = stronger acrylic blur but lifts blacks to grey)
 GLASS_ALPHA = 0.78  # lower = more of the blurred background shows
 DEFAULTS = {"x": None, "y": None, "w": 300, "compact": False,
+            "glass": True,                              # true = glass, false = pure black
             "show_claude": None, "show_codex": None,   # null = auto (show if its log folder exists)
             "claude_5h_cap": None,          # null = your own peak 5h window
             "claude_7d_cap": 30_000_000}    # edit to taste (Claude logs have no official limit)
@@ -247,9 +248,9 @@ class Widget:
         r.title("Token Usage")
         r.overrideredirect(True)
         r.attributes("-topmost", True)
-        r.attributes("-alpha", GLASS_ALPHA if GLASS else 1.0)
-        r.configure(bg=BG)
-        self.cv = tk.Canvas(r, bg=BG, highlightthickness=0, bd=0)
+        r.attributes("-alpha", GLASS_ALPHA if self.cfg["glass"] else 1.0)
+        r.configure(bg=self.bg)
+        self.cv = tk.Canvas(r, bg=self.bg, highlightthickness=0, bd=0)
         self.cv.pack(fill="both", expand=True)
         self.cv.bind("<ButtonPress-1>", self.press)
         self.cv.bind("<B1-Motion>", self.motion)
@@ -354,7 +355,7 @@ class Widget:
         cv, w, p = self.cv, self.cfg["w"], self.PAD
         compact, d = self.cfg["compact"], self.data
         cv.delete("all")
-        rrect(cv, 1, 1, w - 1, 9999, 12, fill=BG, outline=BORDER)  # trimmed after height known
+        rrect(cv, 1, 1, w - 1, 9999, 12, fill=self.bg, outline=BORDER)  # trimmed after height known
         bg_id = cv.find_all()[-1]
 
         for i, (col, glyph) in enumerate(((RED, "×"), (YELLOW, "–"), (LIGHT_GREEN, "+"))):
@@ -508,6 +509,19 @@ class Widget:
         except Exception:
             pass
 
+    @property
+    def bg(self):
+        return BG if self.cfg["glass"] else PURE_BLACK
+
+    def set_style(self, glass):
+        self.cfg["glass"] = bool(glass)
+        self.root.attributes("-alpha", GLASS_ALPHA if glass else 1.0)
+        self.root.configure(bg=self.bg)
+        self.cv.configure(bg=self.bg)
+        self.glass()
+        self.save()
+        self.draw()
+
     def glass(self):
         """Acrylic blur-behind + rounded corners (Win10 1803+/Win11)."""
         try:
@@ -522,9 +536,8 @@ class Widget:
             class WCA(Structure):
                 _fields_ = [("Attr", c_int), ("Data", c_void_p), ("Size", c_size_t)]
 
-            acc = ACCENT(GLASS_ACCENT[0], 0, GLASS_ACCENT[1], 0)
-            if GLASS:
-                u.SetWindowCompositionAttribute(hwnd, byref(WCA(19, ctypes.addressof(acc), sizeof(acc))))
+            acc = ACCENT(*(GLASS_ACCENT[0], 0, GLASS_ACCENT[1], 0) if self.cfg["glass"] else (0, 0, 0, 0))
+            u.SetWindowCompositionAttribute(hwnd, byref(WCA(19, ctypes.addressof(acc), sizeof(acc))))
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, byref(c_int(2)), 4)  # rounded
         except Exception:
             pass
@@ -549,6 +562,10 @@ class Widget:
         vc, vx = tk.BooleanVar(value=self.enabled("claude")), tk.BooleanVar(value=self.enabled("codex"))
         m.add_checkbutton(label="Show Claude Code", variable=vc, command=lambda: self.set_show("claude", vc.get()))
         m.add_checkbutton(label="Show Codex", variable=vx, command=lambda: self.set_show("codex", vx.get()))
+        m.add_separator()
+        vs = tk.StringVar(value="glass" if self.cfg["glass"] else "black")
+        m.add_radiobutton(label="Glass", variable=vs, value="glass", command=lambda: self.set_style(True))
+        m.add_radiobutton(label="Pure black", variable=vs, value="black", command=lambda: self.set_style(False))
         m.add_separator()
         m.add_command(label="Refresh now", command=self.fetch)
         m.add_command(label="Compact / Full", command=self.toggle_compact)
