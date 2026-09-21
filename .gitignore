@@ -1,0 +1,10 @@
+__pycache__/
+build/
+*.spec
+*.log
+err.txt
+config.json
+TokenWidget.exe
+logos/.*.png
+logos/app.ico
+pos.json
