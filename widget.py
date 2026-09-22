@@ -153,6 +153,12 @@ def window_sum(events, since):
     return sum(t for ts, t in events if ts >= since)
 
 
+def window_reset(events, since, span):
+    """When the oldest event still inside the window falls out (i.e. window resets)."""
+    ts_in_window = [ts for ts, _ in events if ts >= since]
+    return min(ts_in_window) + span if ts_in_window else None
+
+
 def peak_window(events, hours):
     """Largest token total inside any rolling window of `hours`."""
     ev = sorted(events)
@@ -176,6 +182,8 @@ def collect(claude=True, codex=True):
     return {
         "claude": [window_sum(c_ev, today), window_sum(c_ev, h5), window_sum(c_ev, d7)],
         "claude_peak5h": peak_window(c_ev, 5),
+        "claude_reset5": window_reset(c_ev, h5, timedelta(hours=5)),
+        "claude_reset7": window_reset(c_ev, d7, timedelta(days=7)),
         "codex": [window_sum(x_ev, today), window_sum(x_ev, h5), window_sum(x_ev, d7)],
         "rl": rl,
         "now": now,
@@ -383,8 +391,13 @@ class Widget:
             cap7 = self.cfg["claude_7d_cap"] or 30_000_000
             if self.enabled("claude"):
                 y = self.section(y, "Claude Code", ORANGE, self.logos.get("claude"))
-                y = self.bar(y, w, c[1] / cap5, ORANGE, "5 hours", f"{fmt(c[1])} · {c[1] / cap5:.0%}")
-                y = self.bar(y, w, c[2] / cap7, ORANGE, "7 days", f"{fmt(c[2])} · {c[2] / cap7:.0%}")
+                for label, idx, cap, reset_key, weekly in (
+                        ("5-hour limit", 1, cap5, "claude_reset5", False),
+                        ("Weekly limit", 2, cap7, "claude_reset7", True)):
+                    pct = c[idx] / cap if cap else 0
+                    reset = d.get(reset_key)
+                    tail = (f"resets {reset:%a %H:%M}" if weekly else f"resets {reset:%H:%M}") if reset else ""
+                    y = self.bar(y, w, pct, ORANGE, label, f"{pct:.0%} · {tail}".rstrip(" ·"))
                 if not compact:
                     y = self.row(y, w, "Today", fmt(c[0]))
                 y += 8
