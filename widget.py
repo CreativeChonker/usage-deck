@@ -9,11 +9,13 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
 HOME = Path.home()
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude") / "projects"
+CLAUDE_CREDENTIALS = CLAUDE_DIR.parent / ".credentials.json"
 CODEX_DIR = Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "sessions"
 BASE = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
 CONFIG = BASE / "config.json"
@@ -108,6 +110,21 @@ def scan_claude():
     return list(merged.values())
 
 
+def scan_claude_limits():
+    """Official Claude subscription usage. Never estimate limits from local logs."""
+    try:
+        auth = json.loads(CLAUDE_CREDENTIALS.read_text(encoding="utf-8"))["claudeAiOauth"]
+        req = urllib.request.Request(
+            "https://api.anthropic.com/api/oauth/usage",
+            headers={"Authorization": f"Bearer {auth['accessToken']}",
+                     "anthropic-beta": "oauth-2025-04-20",
+                     "User-Agent": "claude-code"})
+        with urllib.request.urlopen(req, timeout=8) as response:
+            return json.load(response)
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def scan_codex():
     """([(ts, tokens)], latest_rate_limits_or_None)."""
     deltas, latest = [], None
@@ -178,9 +195,11 @@ def collect(claude=True, codex=True):
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     h5, d7 = now - timedelta(hours=5), now - timedelta(days=7)
     c_ev = scan_claude() if claude else []
+    c_rl = scan_claude_limits() if claude else None
     x_ev, rl = scan_codex() if codex else ([], None)
     return {
         "claude": [window_sum(c_ev, today), window_sum(c_ev, h5), window_sum(c_ev, d7)],
+        "claude_rl": c_rl,
         "claude_peak5h": peak_window(c_ev, 5),
         "claude_reset5": window_reset(c_ev, h5, timedelta(hours=5)),
         "claude_reset7": window_reset(c_ev, d7, timedelta(days=7)),
@@ -387,17 +406,19 @@ class Widget:
         else:
             now = d["now"]
             c = d["claude"]
-            cap5 = self.cfg["claude_5h_cap"] or max(d["claude_peak5h"], 1_000_000)
-            cap7 = self.cfg["claude_7d_cap"] or 30_000_000
             if self.enabled("claude"):
                 y = self.section(y, "Claude Code", ORANGE, self.logos.get("claude"))
-                for label, idx, cap, reset_key, weekly in (
-                        ("5-hour limit", 1, cap5, "claude_reset5", False),
-                        ("Weekly limit", 2, cap7, "claude_reset7", True)):
-                    pct = c[idx] / cap if cap else 0
-                    reset = d.get(reset_key)
+                c_rl = d.get("claude_rl") or {}
+                for name, label, weekly in (("five_hour", "5-hour limit", False),
+                                            ("seven_day", "Weekly limit", True)):
+                    win = c_rl.get(name)
+                    if not win or win.get("utilization") is None:
+                        y = self.row(y, w, label, "n/a")
+                        continue
+                    pct = float(win["utilization"])
+                    reset = parse_ts(win["resets_at"]).astimezone() if win.get("resets_at") else None
                     tail = (f"resets {reset:%a %H:%M}" if weekly else f"resets {reset:%H:%M}") if reset else ""
-                    y = self.bar(y, w, pct, ORANGE, label, f"{pct:.0%} · {tail}".rstrip(" ·"))
+                    y = self.bar(y, w, pct / 100, ORANGE, label, f"{pct:.0f}% · {tail}".rstrip(" ·"))
                 if not compact:
                     y = self.row(y, w, "Today", fmt(c[0]))
                 y += 8
