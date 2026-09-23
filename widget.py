@@ -30,7 +30,8 @@ DEFAULTS = {"x": None, "y": None, "w": 300, "compact": False,
             "glass": True,                              # true = glass, false = pure black
             "show_claude": None, "show_codex": None,   # null = auto (show if its log folder exists)
             "claude_5h_cap": None,          # null = your own peak 5h window
-            "claude_7d_cap": 30_000_000}    # edit to taste (Claude logs have no official limit)
+            "claude_7d_cap": 30_000_000,    # edit to taste (Claude logs have no official limit)
+            "time_format": "24h"}           # "24h" or "12h" (am/pm)
 
 KEY = "#010203"  # transparent colour key for rounded corners
 BG, BORDER, TRACK = "#0e0e0f", "#2c2c2e", "#262628"
@@ -112,6 +113,7 @@ def scan_claude():
 
 def scan_claude_limits():
     """Official Claude subscription usage. Never estimate limits from local logs."""
+    global _last_good_rl
     try:
         auth = json.loads(CLAUDE_CREDENTIALS.read_text(encoding="utf-8"))["claudeAiOauth"]
         req = urllib.request.Request(
@@ -120,9 +122,18 @@ def scan_claude_limits():
                      "anthropic-beta": "oauth-2025-04-20",
                      "User-Agent": "claude-code"})
         with urllib.request.urlopen(req, timeout=8) as response:
-            return json.load(response)
+            data = json.load(response)
+        _last_good_rl = data
+        return data
+    except urllib.error.HTTPError as e:
+        reason = {401: "token expired", 403: "token expired", 429: "rate limited"}.get(e.code, f"HTTP {e.code}")
     except (OSError, ValueError, KeyError):
-        return None
+        reason = "offline"
+    # Keep showing the last good reading, flagged stale, instead of blanking the bars.
+    return dict(_last_good_rl or {}, _stale=reason)
+
+
+_last_good_rl = None
 
 
 def scan_codex():
@@ -170,10 +181,15 @@ def window_sum(events, since):
     return sum(t for ts, t in events if ts >= since)
 
 
+def fmt_time(dt, weekly, fmt12):
+    t = dt.strftime("%#I:%M %p") if fmt12 else dt.strftime("%H:%M")
+    return f"{dt:%a} {t}" if weekly else t
+
+
 def window_reset(events, since, span):
     """When the oldest event still inside the window falls out (i.e. window resets)."""
     ts_in_window = [ts for ts, _ in events if ts >= since]
-    return min(ts_in_window) + span if ts_in_window else None
+    return (min(ts_in_window) + span).astimezone() if ts_in_window else None
 
 
 def peak_window(events, hours):
@@ -406,18 +422,22 @@ class Widget:
         else:
             now = d["now"]
             c = d["claude"]
+            fmt12 = self.cfg.get("time_format") == "12h"
             if self.enabled("claude"):
                 y = self.section(y, "Claude Code", ORANGE, self.logos.get("claude"))
                 c_rl = d.get("claude_rl") or {}
                 for name, label, weekly in (("five_hour", "5-hour limit", False),
                                             ("seven_day", "Weekly limit", True)):
                     win = c_rl.get(name)
+                    stale = c_rl.get("_stale")
                     if not win or win.get("utilization") is None:
-                        y = self.row(y, w, label, "n/a")
+                        y = self.row(y, w, label, f"n/a ({stale})" if stale else "n/a")
                         continue
                     pct = float(win["utilization"])
                     reset = parse_ts(win["resets_at"]).astimezone() if win.get("resets_at") else None
-                    tail = (f"resets {reset:%a %H:%M}" if weekly else f"resets {reset:%H:%M}") if reset else ""
+                    tail = f"resets {fmt_time(reset, weekly, fmt12)}" if reset else ""
+                    if stale:
+                        tail = f"{tail} · stale: {stale}".lstrip(" ·")
                     y = self.bar(y, w, pct / 100, ORANGE, label, f"{pct:.0f}% · {tail}".rstrip(" ·"))
                 if not compact:
                     y = self.row(y, w, "Today", fmt(c[0]))
@@ -437,7 +457,7 @@ class Widget:
                     if reset and reset < now:
                         pct, tail = 0, "reset"
                     elif reset:
-                        tail = f"resets {reset:%a %H:%M}" if weekly else f"resets {reset:%H:%M}"
+                        tail = f"resets {fmt_time(reset, weekly, fmt12)}"
                     else:
                         tail = ""
                     y = self.bar(y, w, pct / 100, BLUE, label, f"{pct:.0f}% · {tail}".rstrip(" ·"))
@@ -601,12 +621,21 @@ class Widget:
         m.add_radiobutton(label="Glass", variable=vs, value="glass", command=lambda: self.set_style(True))
         m.add_radiobutton(label="Pure black", variable=vs, value="black", command=lambda: self.set_style(False))
         m.add_separator()
+        vt = tk.StringVar(value=self.cfg.get("time_format", "24h"))
+        m.add_radiobutton(label="24-hour time", variable=vt, value="24h", command=lambda: self.set_time_format("24h"))
+        m.add_radiobutton(label="12-hour time (AM/PM)", variable=vt, value="12h", command=lambda: self.set_time_format("12h"))
+        m.add_separator()
         m.add_command(label="Refresh now", command=self.fetch)
         m.add_command(label="Compact / Full", command=self.toggle_compact)
         m.add_command(label="Minimize", command=self.minimize)
         m.add_separator()
         m.add_command(label="Quit", command=self.root.destroy)
         m.tk_popup(e.x_root, e.y_root)
+
+    def set_time_format(self, fmt):
+        self.cfg["time_format"] = fmt
+        self.save()
+        self.draw()
 
     def set_show(self, name, on):
         self.cfg[f"show_{name}"] = bool(on)
