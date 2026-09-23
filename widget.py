@@ -113,7 +113,13 @@ def scan_claude():
 
 def scan_claude_limits():
     """Official Claude subscription usage. Never estimate limits from local logs."""
-    global _last_good_rl
+    global _last_good_rl, _next_fetch, _stale_reason
+    now = time.time()
+    if now < _next_fetch:
+        if _stale_reason:
+            return dict(_last_good_rl or {}, _stale=_stale_reason)
+        return _last_good_rl
+    _next_fetch = now + 180
     try:
         auth = json.loads(CLAUDE_CREDENTIALS.read_text(encoding="utf-8"))["claudeAiOauth"]
         req = urllib.request.Request(
@@ -124,16 +130,22 @@ def scan_claude_limits():
         with urllib.request.urlopen(req, timeout=8) as response:
             data = json.load(response)
         _last_good_rl = data
+        _stale_reason = None
         return data
     except urllib.error.HTTPError as e:
         reason = {401: "token expired", 403: "token expired", 429: "rate limited"}.get(e.code, f"HTTP {e.code}")
     except (OSError, ValueError, KeyError):
         reason = "offline"
+    if reason == "rate limited":
+        _next_fetch = now + 600
+    _stale_reason = reason
     # Keep showing the last good reading, flagged stale, instead of blanking the bars.
     return dict(_last_good_rl or {}, _stale=reason)
 
 
 _last_good_rl = None
+_next_fetch = 0.0
+_stale_reason = None
 
 
 def scan_codex():
@@ -437,7 +449,7 @@ class Widget:
                     reset = parse_ts(win["resets_at"]).astimezone() if win.get("resets_at") else None
                     tail = f"resets {fmt_time(reset, weekly, fmt12)}" if reset else ""
                     if stale:
-                        tail = f"{tail} · stale: {stale}".lstrip(" ·")
+                        tail = f"{tail} · stale".lstrip(" ·")
                     y = self.bar(y, w, pct / 100, ORANGE, label, f"{pct:.0f}% · {tail}".rstrip(" ·"))
                 if not compact:
                     y = self.row(y, w, "Today", fmt(c[0]))
